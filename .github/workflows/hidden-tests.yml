@@ -24,9 +24,9 @@ jobs:
     - name: Checkout hidden tests
       uses: actions/checkout@v4
       with:
-        repository: Xelerit-Robotics/applicant-dojo-hidden-tests
+        repository: Xelerit-Robotics/applicant-dojo-REVIEWER
         token: ${{ secrets.HIDDEN_TESTS_TOKEN }}
-        path: tests_hidden
+        path: reviewer-tests
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -40,7 +40,7 @@ jobs:
     
     - name: Run hidden tests
       run: |
-        pytest tests_hidden/test_hidden.py -v --tb=short --junit-xml=hidden-test-results.xml
+        pytest reviewer-tests/test_hidden.py -v --tb=short --junit-xml=hidden-test-results.xml
       continue-on-error: true
     
     - name: Generate evaluation report
@@ -52,7 +52,7 @@ jobs:
         echo "**Date:** $(date)" >> evaluation.md
         echo "" >> evaluation.md
         echo "## Test Results" >> evaluation.md
-        pytest tests_hidden/test_hidden.py -v --tb=line >> evaluation.md 2>&1 || true
+        pytest reviewer-tests/test_hidden.py -v --tb=line >> evaluation.md 2>&1 || true
     
     - name: Upload hidden test results
       if: always()
