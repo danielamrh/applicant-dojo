@@ -64,9 +64,46 @@ def ingest_data(
     - Document your data cleaning strategy in NOTES.md
     """
     # TODO: Implement this function
-    raise NotImplementedError(
-        "ingest_data() must be implemented by the candidate"
-    )
+
+    if not data_batches or not isinstance(data_batches, list):
+        raise ValueError("data_batches must be a non-empty list of DataFrames")
+    
+    # 1. Concatenate all batches into a single DataFrame
+    try:
+        raw_data = pd.concat(data_batches, ignore_index=True)
+    except Exception as e:
+        raise ValueError(f"Error concatenating data batches: {e}")
+    
+    # Handle Concatenation issues
+    if raw_data.empty:
+        expected_cols = ["timestamp", "sensor", "value", "unit", "quality"]
+        return pd.DataFrame(columns=expected_cols)
+    
+    if validate:
+        # Ensure timestamp is datetime
+        raw_data['timestamp'] = pd.to_datetime(raw_data['timestamp'], errors='coerce')
+        # Ensure value is float
+        raw_data['value'] = pd.to_numeric(raw_data['value'], errors='coerce')
+
+        # Drop rows with missing timestamps or sensor names
+        raw_data = raw_data.dropna(subset=["timestamp", "sensor"], inplace=True)
+        
+        # Remove duplicates based on timestamp, sensor, value, and unit
+        # We keep the first occurrence
+        # We could also consider quality flags here if needed
+        raw_data = raw_data.drop_duplicates(subset=["timestamp", "sensor", "value", "unit"],
+                                            keep='first',
+                                            inplace=True
+                                            )
+        
+    # Sort by timestamp
+    consolidated_data = raw_data.sort_values(by="timestamp").reset_index(drop=True)
+        
+    # Map quality flags to numeric scores for potential future use
+    quality_mapping = {"GOOD": 1, "UNCERTAIN": 0.5, "BAD": 0}
+    consolidated_data['quality_score'] = consolidated_data['quality'].map(quality_mapping).fillna(0)
+    
+    return consolidated_data
 
 
 def detect_anomalies(
