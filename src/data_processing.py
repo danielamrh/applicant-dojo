@@ -65,45 +65,68 @@ def ingest_data(
     """
     # TODO: Implement this function
 
-    if not data_batches or not isinstance(data_batches, list):
-        raise ValueError("data_batches must be a non-empty list of DataFrames")
-    
+    if not data_batches:
+        raise ValueError("Input 'data_batches' list cannot be empty.")
+
     # 1. Concatenate all batches into a single DataFrame
+    # Using ignore_index=True ensures the final DataFrame has a continuous index
+    # even if individual batch indices overlap.
     try:
         raw_data = pd.concat(data_batches, ignore_index=True)
     except Exception as e:
-        raise ValueError(f"Error concatenating data batches: {e}")
-    
-    # Handle Concatenation issues
-    if raw_data.empty:
-        expected_cols = ["timestamp", "sensor", "value", "unit", "quality"]
-        return pd.DataFrame(columns=expected_cols)
-    
-    if validate:
-        # Ensure timestamp is datetime
-        raw_data['timestamp'] = pd.to_datetime(raw_data['timestamp'], errors='coerce')
-        # Ensure value is float
-        raw_data['value'] = pd.to_numeric(raw_data['value'], errors='coerce')
+        # Catch issues during concatenation (e.g., inconsistent columns, bad data structure)
+        raise ValueError(f"Failed to concatenate data batches: {e}")
 
-        # Drop rows with missing timestamps or sensor names
-        raw_data = raw_data.dropna(subset=["timestamp", "sensor"], inplace=True)
+    # Handle the case where concatenation results in an empty DataFrame
+    if raw_data.empty:
+        # Return an empty DataFrame with the expected columns if no data was read
+        # or all batches were empty.
+        expected_cols = ["timestamp", "sensor", "value", "unit", "quality"]
+        # Include quality_score for consistency with the success path
+        expected_cols.append("quality_score")
+        return pd.DataFrame(columns=expected_cols)
+
+    if validate:
+        # 2. Data Type Conversion and Cleaning
+        # Ensure 'timestamp' is in datetime format and coerce errors (handle strings/invalids)
+        raw_data['timestamp'] = pd.to_datetime(raw_data['timestamp'], errors='coerce')
+        # Ensure 'value' is float (important for calculations)
+        raw_data['value'] = pd.to_numeric(raw_data['value'], errors='coerce')
         
-        # Remove duplicates based on timestamp, sensor, value, and unit
-        # We keep the first occurrence
-        # We could also consider quality flags here if needed
-        raw_data = raw_data.drop_duplicates(subset=["timestamp", "sensor", "value", "unit"],
-                                            keep='first',
-                                            inplace=True
-                                            )
+        # Drop rows where essential columns are NaT/NaN after conversion
+        # Essential columns are 'timestamp' and 'sensor'. 'value' NaNs are kept for now.
+        # Dropping rows with missing timestamp or sensor ID (using inplace=True)
+        raw_data.dropna(subset=['timestamp', 'sensor'], inplace=True)
         
-    # Sort by timestamp
-    consolidated_data = raw_data.sort_values(by="timestamp").reset_index(drop=True)
+        # Re-check if the DataFrame is empty after dropping essential NaNs
+        if raw_data.empty:
+            expected_cols = ["timestamp", "sensor", "value", "unit", "quality", "quality_score"]
+            return pd.DataFrame(columns=expected_cols)
+
+
+        # 3. Handle Duplicates
+        # Industrial data can have duplicate records (same time, sensor, value).
+        # We assume that duplicates with the same (timestamp, sensor, value)
+        # and unit are genuine duplicates. We keep the first one found.
+        # FIX: Removed the assignment back to raw_data since inplace=True is used.
+        raw_data.drop_duplicates(
+            subset=['timestamp', 'sensor', 'value', 'unit'], 
+            keep='first', 
+            inplace=True
+        )
         
-    # Map quality flags to numeric scores for potential future use
+    # 4. Sort by Timestamp
+    # Sorting ensures time-series analysis is performed in the correct order,
+    # correcting for simulated out-of-order arrival.
+    consolidated_data = raw_data.sort_values(by='timestamp').reset_index(drop=True)
+    
+    # 5. Add Derived Quality Metrics (optional but good practice)
+    # Convert quality flags to a numerical representation for later analysis
     quality_mapping = {"GOOD": 1, "UNCERTAIN": 0.5, "BAD": 0}
     consolidated_data['quality_score'] = consolidated_data['quality'].map(quality_mapping).fillna(0)
     
     return consolidated_data
+
 
 
 def detect_anomalies(
