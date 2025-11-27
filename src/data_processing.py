@@ -375,12 +375,11 @@ def summarize_metrics(
     if group_by and group_by not in data.columns:
         raise ValueError(f"Grouping column '{group_by}' not found in data.")
 
-    # 1. Prepare Grouping Key
+    # Prepare Grouping Key
     # Determine if anomaly columns exist for conditional metrics
     has_anomaly_data = 'is_anomaly' in data.columns
     
     # Define Core Aggregation Functions
-    # 'count' will be the count of non-null 'value' entries
     agg_funcs_list = ['mean', 'std', 'min', 'max', 'count']
 
     if time_window:
@@ -413,7 +412,7 @@ def summarize_metrics(
         core_metrics.columns = ['mean', 'std', 'min', 'max', 'count']
 
 
-    # 2. Calculate Custom Metrics (Quality and Anomaly)
+    # Calculate Custom Metrics (Quality and Anomaly)
     if not (time_window or group_by):
         # Non-grouped case: Calculate custom metrics based on core_metrics and data
         total_count = len(data) # Total records (including NaNs)
@@ -434,10 +433,7 @@ def summarize_metrics(
         core_metrics['null_count'] = null_count
         core_metrics['good_quality_pct'] = good_quality_pct_val
         core_metrics['anomaly_rate'] = anomaly_rate_val
-        # Note: We will keep 'total_readings' for internal reference but rely on 'count' and 'null_count'
-        # core_metrics['total_readings'] = total_count 
         
-        # The key 'count' is already present and correct (non-null count).
         summary_df = core_metrics # Use core_metrics as the final summary_df
 
     else:
@@ -469,10 +465,7 @@ def summarize_metrics(
         
         summary_df = pd.concat([core_metrics, custom_metrics], axis=1)
 
-    # 4. Format Output
-    # The 'count' column is already the non-null count and is named correctly.
-    # We remove the renaming step summary_df = summary_df.rename(columns={'count': 'non_null_count'}) 
-    
+    # Format Output    
     result_dict = {}
     
     if time_window:
