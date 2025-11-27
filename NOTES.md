@@ -1,8 +1,8 @@
 # Implementation Notes
 
-**Candidate Name:** [Your Name Here]  
-**Date:** [Submission Date]  
-**Time Spent:** [Approximate hours]
+**Candidate Name:** Daniel Amrhein  
+**Date:** 27.11.2025
+**Time Spent:** 21:00
 
 ---
 
@@ -16,15 +16,15 @@ Brief overview of what you implemented and your overall approach.
 
 List what you successfully implemented:
 
-- [ ] `ingest_data()` - basic functionality
-- [ ] `ingest_data()` - deduplication
-- [ ] `ingest_data()` - sorting
-- [ ] `ingest_data()` - validation
-- [ ] `detect_anomalies()` - zscore method
-- [ ] `detect_anomalies()` - additional methods (iqr/rolling)
-- [ ] `summarize_metrics()` - basic statistics
-- [ ] `summarize_metrics()` - quality metrics
-- [ ] `summarize_metrics()` - time windowing
+- [✅] `ingest_data()` - basic functionality
+- [✅] `ingest_data()` - deduplication
+- [✅] `ingest_data()` - sorting
+- [✅] `ingest_data()` - validation
+- [✅] `detect_anomalies()` - zscore method
+- [✅] `detect_anomalies()` - additional methods (iqr/rolling)
+- [✅] `summarize_metrics()` - basic statistics
+- [✅] `summarize_metrics()` - quality metrics
+- [✅] `summarize_metrics()` - time windowing
 - [ ] Additional tests beyond exposed tests
 
 ---
@@ -111,7 +111,7 @@ List any clarifying questions or areas where you'd like feedback.
 
 What did you find most interesting or challenging about this exercise?
 
-- **Most challenging:** [What was hardest and why]
+- **Most challenging:** 
 - **Most interesting:** [What you enjoyed working on]
 - **Learned:** [Anything new you learned or researched]
 
@@ -121,10 +121,10 @@ What did you find most interesting or challenging about this exercise?
 
 Document your setup for reproducibility.
 
-- **Python version:** [e.g., 3.11.5]
-- **OS:** [e.g., Windows 11, Ubuntu 22.04, macOS]
-- **Editor/IDE:** [e.g., VS Code, PyCharm]
-- **Additional tools:** [e.g., "Used black for formatting", "Ran mypy for type checking"]
+- **Python version:** 3.10.12
+- **OS:** Ubuntu (WSL2)
+- **Editor/IDE:** VS Code
+- **Additional tools:** 
 
 ---
 
@@ -132,8 +132,9 @@ Document your setup for reproducibility.
 
 Any resources you consulted (documentation, articles, etc.).
 
-- [Resource 1 with link]
-- [Resource 2 with link]
+- Z-score: (https://de.wikipedia.org/wiki/Standardisierung_(Statistik))
+- IQR: https://novustat.com/statistik-glossar/interquartilabstand.html
+- Pandas Documentation (GroupBy, Aggregation, TimeGrouper)
 
 ---
 

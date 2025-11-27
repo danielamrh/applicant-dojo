@@ -63,7 +63,6 @@ def ingest_data(
     - Consider filtering by quality flags
     - Document your data cleaning strategy in NOTES.md
     """
-    # TODO: Implement this function
 
     if not data_batches:
         raise ValueError("Input 'data_batches' list cannot be empty.")
@@ -176,10 +175,138 @@ def detect_anomalies(
     - Think about edge cases: what if all data is anomalous? None is?
     - Document your approach and limitations in NOTES.md
     """
-    # TODO: Implement this function
-    raise NotImplementedError(
-        "detect_anomalies() must be implemented by the candidate"
+    
+    # Check for empty input data
+    if data.empty:
+        # Return empty data with expected anomaly columns
+        data['is_anomaly'] = pd.Series(dtype='bool')
+        data['anomaly_score'] = pd.Series(dtype='float64')
+        data['detection_method'] = pd.Series(dtype='object')
+        return data
+    
+    # Filter data for the specific sensor
+    sensor_data = data[data['sensor'] == sensor_name].copy()
+    
+    if sensor_data.empty:
+        raise ValueError(f"Sensor name '{sensor_name}' not found in the data.")
+
+    # Prepare columns for anomaly results
+    sensor_data['is_anomaly'] = False
+    sensor_data['anomaly_score'] = 0.0
+    sensor_data['detection_method'] = method
+
+    # Drop NaNs from the 'value' column for statistical calculations
+    values = sensor_data['value'].dropna()
+    
+    if values.empty:
+        raise ValueError(
+            f"Insufficient data for sensor '{sensor_name}'. Value column contains only NaN or has fewer than 2 non-NaN values."
+        )
+    if len(values) < 2 and method == "zscore":
+         raise ValueError(
+            f"Insufficient data for sensor '{sensor_name}'. Z-score method requires at least 2 non-NaN values."
+        )
+
+    if method == "zscore":
+        # Z-Score Method
+
+        # Calculate mean and standard deviation
+        mean_val = values.mean()
+        std_val = values.std()
+
+        # Handle case where std is zero
+        if std_val == 0:
+            return sensor_data
+        
+        # Compute z-scores
+        z_scores = (sensor_data['value'] - mean_val) / std_val
+        anomaly_score = z_scores.abs()
+
+        ## Flag anomalies: where the absolute Z-score exceeds the threshold
+        # We also ensure the value is not NaN before flagging
+        is_anomaly = (anomaly_score > threshold) & sensor_data['value'].notna()
+        
+        # Update the sensor_data DataFrame
+        sensor_data['anomaly_score'] = anomaly_score.fillna(0.0) # Set score to 0 for NaNs
+        sensor_data['is_anomaly'] = is_anomaly.fillna(False)
+
+    elif method == "iqr":
+        # Implementation of IQR method
+        Q1 = values.quantile(0.25)
+        Q3 = values.quantile(0.75)
+        IQR = Q3 - Q1
+
+        lower_bound = Q1 - threshold * IQR
+        upper_bound = Q3 + threshold * IQR
+
+        # Compute anomaly scores based on distance from nearest bound
+        def compute_iqr_score(x):
+            if pd.isna(x):
+                return 0.0
+            elif x < lower_bound:
+                return (lower_bound - x) / IQR
+            elif x > upper_bound:
+                return (x - upper_bound) / IQR
+            else:
+                return 0.0
+        
+        # Apply the scoring function to compute anomaly scores
+        anomaly_score = sensor_data['value'].apply(compute_iqr_score)
+
+        # Flag anomalies
+        is_anomaly = (anomaly_score > 0) & sensor_data['value'].notna()
+
+        # Update the sensor_data DataFrame
+        sensor_data['anomaly_score'] = anomaly_score
+        sensor_data['is_anomaly'] = is_anomaly
+
+    elif method == "rolling":
+        # Implementation of Rolling Window method
+        WINDOW_SIZE = 20 # Example fixed window size
+        if len(values) < WINDOW_SIZE:
+            raise ValueError(
+                f"Insufficient data for sensor '{sensor_name}'. Rolling method requires at least {WINDOW_SIZE} non-NaN values."
+            )
+        
+        # Calculate rolling mean and std
+        rolling_mean = sensor_data['value'].rolling(window=WINDOW_SIZE, min_periods=1).mean()
+        rolling_std = sensor_data['value'].rolling(window=WINDOW_SIZE, min_periods=1).std().replace(0, np.nan)
+
+        # Compute rolling z-scores
+        rolling_z_scores = (sensor_data['value'] - rolling_mean) / rolling_std
+        anomaly_score = rolling_z_scores.abs()
+
+        # Flag anomalies
+        is_anomaly = (anomaly_score > threshold) & sensor_data['value'].notna()
+        
+        # Update the sensor_data DataFrame
+        sensor_data['anomaly_score'] = anomaly_score.fillna(0.0) # Set score to 0 for NaNs
+        sensor_data['is_anomaly'] = is_anomaly.fillna(False)
+
+    else:
+        raise ValueError(f"Anomaly detection method '{method}' is not supported.")
+
+    # Merge the anomaly results back into the original data
+    # Use a left join to preserve all original data
+    # This ensures that rows not related to the specific sensor retain their original values
+    result_data = pd.merge(
+        data, 
+        sensor_data[['timestamp', 'sensor', 'is_anomaly', 'anomaly_score', 'detection_method']],
+        on=['timestamp', 'sensor'],
+        how='left',
+        suffixes=('_original', None) # Keep the original column names
     )
+    
+    # Fill NaNs created by the left merge for the new columns
+    # Rows not belonging to the sensor_name will get default values
+    result_data['is_anomaly'] = result_data['is_anomaly'].fillna(False)
+    result_data['anomaly_score'] = result_data['anomaly_score'].fillna(0.0)
+    result_data['detection_method'] = result_data['detection_method'].fillna('')
+
+    # Drop potential duplicate columns that might arise from edge cases
+    result_data = result_data.loc[:,~result_data.columns.duplicated()].copy()
+
+    return result_data
 
 
 def summarize_metrics(
@@ -241,7 +368,151 @@ def summarize_metrics(
     - Ensure robust handling of edge cases (all nulls, single value, etc.)
     - Document your metric choices in NOTES.md
     """
-    # TODO: Implement this function
-    raise NotImplementedError(
-        "summarize_metrics() must be implemented by the candidate"
-    )
+    
+    if data.empty:
+        raise ValueError("Input data cannot be empty.")
+    
+    if group_by and group_by not in data.columns:
+        raise ValueError(f"Grouping column '{group_by}' not found in data.")
+
+    # 1. Prepare Grouping Key
+    # Determine if anomaly columns exist for conditional metrics
+    has_anomaly_data = 'is_anomaly' in data.columns
+    
+    # Define Core Aggregation Functions
+    # 'count' will be the count of non-null 'value' entries
+    agg_funcs_list = ['mean', 'std', 'min', 'max', 'count']
+
+    if time_window:
+        if 'timestamp' not in data.columns:
+            raise ValueError("Time-based grouping requires a 'timestamp' column.")
+            
+        # Time-based grouping: Group by time window (on index) and the group_by column
+        data_grouped = data.set_index('timestamp').groupby(
+            [pd.Grouper(freq=time_window)] + ([group_by] if group_by else [])
+        )
+        
+        # Perform core aggregation on the 'value' column
+        core_metrics = data_grouped['value'].agg(agg_funcs_list)
+        core_metrics.columns = ['mean', 'std', 'min', 'max', 'count'] # Rename columns back to simple names
+
+    elif group_by:
+        # Simple grouping by the specified column
+        data_grouped = data.groupby(group_by)
+        # Perform core aggregation on the 'value' column
+        core_metrics = data_grouped['value'].agg(agg_funcs_list)
+        core_metrics.columns = ['mean', 'std', 'min', 'max', 'count'] # Rename columns back to simple names
+
+    else:
+        # No grouping (Overall) - calculate metrics on the whole 'value' column
+        metrics = data['value'].agg(agg_funcs_list)
+        
+        # Manually create core_metrics DataFrame with the required index
+        core_metrics = pd.DataFrame(metrics).T
+        core_metrics.index = ["Overall"]
+        core_metrics.columns = ['mean', 'std', 'min', 'max', 'count']
+
+
+    # 2. Calculate Custom Metrics (Quality and Anomaly)
+    if not (time_window or group_by):
+        # Non-grouped case: Calculate custom metrics based on core_metrics and data
+        total_count = len(data) # Total records (including NaNs)
+        null_count = total_count - core_metrics.loc['Overall', 'count']
+        
+        # Calculate custom metrics manually for the single 'Overall' row
+        good_quality_pct_val = 0.0
+        if 'quality' in data.columns:
+            good_quality_count = (data['quality'] == 'GOOD').sum()
+            good_quality_pct_val = (good_quality_count / total_count * 100) if total_count > 0 else 0.0
+
+        anomaly_rate_val = 0.0
+        if has_anomaly_data:
+            anomaly_count = data['is_anomaly'].sum()
+            anomaly_rate_val = (anomaly_count / total_count * 100) if total_count > 0 else 0.0
+            
+        # Append to core_metrics DataFrame
+        core_metrics['null_count'] = null_count
+        core_metrics['good_quality_pct'] = good_quality_pct_val
+        core_metrics['anomaly_rate'] = anomaly_rate_val
+        # Note: We will keep 'total_readings' for internal reference but rely on 'count' and 'null_count'
+        # core_metrics['total_readings'] = total_count 
+        
+        # The key 'count' is already present and correct (non-null count).
+        summary_df = core_metrics # Use core_metrics as the final summary_df
+
+    else:
+        # Grouped case (time_window or group_by is active)
+        # data_grouped is the GroupBy object
+        total_count = data_grouped['value'].size()
+        null_count = total_count - core_metrics['count']
+        
+        # Good Quality Percentage (assuming 'quality' column exists)
+        good_quality_pct = pd.Series(0.0, index=total_count.index)
+        if 'quality' in data.columns:
+            good_quality_count = data_grouped['quality'].apply(lambda x: (x == 'GOOD').sum())
+            good_quality_pct = (good_quality_count / total_count * 100).fillna(0.0)
+                
+        # Anomaly Rate
+        anomaly_rate = pd.Series(0.0, index=total_count.index)
+        if has_anomaly_data:
+            anomaly_count = data_grouped['is_anomaly'].sum()
+            anomaly_rate = (anomaly_count / total_count * 100).fillna(0.0)
+
+        # 3. Consolidate Metrics (for grouped case)
+        custom_metrics = pd.DataFrame({
+            'null_count': null_count,
+            'good_quality_pct': good_quality_pct,
+            'anomaly_rate': anomaly_rate,
+            # 'total_readings' key is removed to prevent it from showing up in final metrics
+            # 'total_readings': total_count 
+        }, index=core_metrics.index)
+        
+        summary_df = pd.concat([core_metrics, custom_metrics], axis=1)
+
+    # 4. Format Output
+    # The 'count' column is already the non-null count and is named correctly.
+    # We remove the renaming step summary_df = summary_df.rename(columns={'count': 'non_null_count'}) 
+    
+    result_dict = {}
+    
+    if time_window:
+        # Multi-index (timestamp, sensor) or (timestamp,)
+        summary_df_reset = summary_df.reset_index()
+        
+        for index, row in summary_df_reset.iterrows():
+            # Identify the index columns based on whether group_by was used
+            index_cols = summary_df_reset.columns[:(2 if group_by else 1)]
+            
+            time_key = row[index_cols[0]]
+            group_key = row[index_cols[1]] if group_by else "Overall"
+                
+            time_str = time_key.strftime(f"TimeGroup_{time_window}_%Y-%m-%d %H:%M:%S")
+            
+            if time_str not in result_dict:
+                result_dict[time_str] = {}
+            
+            # Drop the index columns before converting to dictionary
+            result_dict[time_str][group_key] = row.drop(index_cols).to_dict()
+            
+    else:
+        # Simple grouping by group_by column or Overall (Single-level index)
+        result_dict = summary_df.T.to_dict()
+
+
+    # Final cleanup: convert numpy dtypes to standard Python floats/ints for JSON compatibility
+    def clean_metrics(d):
+        cleaned = {}
+        for k, v in d.items():
+            if isinstance(v, dict):
+                cleaned[k] = clean_metrics(v)
+            elif isinstance(v, (np.float32, np.float64)):
+                cleaned[k] = float(v)
+            elif isinstance(v, (np.int32, np.int64)):
+                cleaned[k] = int(v)
+            elif pd.isna(v):
+                cleaned[k] = None # Represent NaN as None
+            else:
+                cleaned[k] = v
+        return cleaned
+    
+    return clean_metrics(result_dict)
